@@ -136,3 +136,5 @@ FROM workspace.gold.customer_purchase_analysis
 GROUP BY customer_id, age_group
 ORDER BY total_sales DESC
 LIMIT 10;
+
+
