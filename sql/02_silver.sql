@@ -4,6 +4,9 @@
 -- Clean, validate, and standardize Bronze data
 -- ============================================================
 
+USE CATALOG workspace;
+USE SCHEMA retail_pipeline;
+
 -- ============================================================
 -- STEP 1: DATA PROFILING
 -- ============================================================
@@ -14,12 +17,12 @@ SELECT
     COUNT(DISTINCT transaction_id) AS unique_transactions,
     COUNT(DISTINCT product_sku) AS unique_products,
     COUNT(DISTINCT retailer) AS unique_retailers
-FROM workspace.bronze.transaction_details_raw;
+FROM workspace.retail_pipeline.transaction_details_raw;
 
 SELECT
     COUNT(*) AS total_records,
     COUNT(DISTINCT user_id) AS unique_users
-FROM workspace.bronze.loyalty_cardholders_raw;
+FROM workspace.retail_pipeline.loyalty_cardholders_raw;
 
 -- ============================================================
 -- STEP 2: DATA QUALITY CHECKS
@@ -37,7 +40,7 @@ SELECT
     SUM(CASE WHEN total_unit_price IS NULL THEN 1 ELSE 0 END) AS missing_unit_price,
     SUM(CASE WHEN retailer IS NULL THEN 1 ELSE 0 END) AS missing_retailer,
     SUM(CASE WHEN branch IS NULL THEN 1 ELSE 0 END) AS missing_branch
-FROM workspace.bronze.transaction_details_raw;
+FROM workspace.retail_pipeline.transaction_details_raw;
 
 -- Missing values: Loyalty
 
@@ -46,14 +49,14 @@ SELECT
     SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END) AS missing_user_id,
     SUM(CASE WHEN birthday IS NULL THEN 1 ELSE 0 END) AS missing_birthday,
     SUM(CASE WHEN registered_date IS NULL THEN 1 ELSE 0 END) AS missing_registered_date
-FROM workspace.bronze.loyalty_cardholders_raw;
+FROM workspace.retail_pipeline.loyalty_cardholders_raw;
 
 -- Duplicate transactions
 
 SELECT
     *,
     COUNT(*) AS duplicate_count
-FROM workspace.bronze.transaction_details_raw
+FROM workspace.retail_pipeline.transaction_details_raw
 GROUP BY ALL
 HAVING COUNT(*) > 1;
 
@@ -62,23 +65,96 @@ HAVING COUNT(*) > 1;
 SELECT
     user_id,
     COUNT(*) AS duplicate_count
-FROM workspace.bronze.loyalty_cardholders_raw
+FROM workspace.retail_pipeline.loyalty_cardholders_raw
 GROUP BY user_id
 HAVING COUNT(*) > 1;
 
 -- Invalid transaction values
 
 SELECT *
-FROM workspace.bronze.transaction_details_raw
+FROM workspace.retail_pipeline.transaction_details_raw
 WHERE quantity <= 0
    OR total_unit_price <= 0;
 
--- Invalid loyalty values
+-- Invalid birthday format
+
+SELECT
+    COUNT(*) AS invalid_birthdays
+FROM workspace.retail_pipeline.loyalty_cardholders_raw
+WHERE TRY_TO_DATE(birthday, 'M/d/yy') IS NULL;
+
+-- Future birthdays
+
+WITH birthday_check AS (
+    SELECT
+        user_id,
+        CASE
+            WHEN CAST(SPLIT(birthday, '/')[2] AS INT) <= 24 THEN
+                TO_DATE(
+                    CONCAT(
+                        '20',
+                        LPAD(SPLIT(birthday, '/')[2], 2, '0'),
+                        '-',
+                        LPAD(SPLIT(birthday, '/')[0], 2, '0'),
+                        '-',
+                        LPAD(SPLIT(birthday, '/')[1], 2, '0')
+                    )
+                )
+            ELSE
+                TO_DATE(
+                    CONCAT(
+                        '19',
+                        LPAD(SPLIT(birthday, '/')[2], 2, '0'),
+                        '-',
+                        LPAD(SPLIT(birthday, '/')[0], 2, '0'),
+                        '-',
+                        LPAD(SPLIT(birthday, '/')[1], 2, '0')
+                    )
+                )
+        END AS parsed_birthday
+    FROM workspace.retail_pipeline.loyalty_cardholders_raw
+)
 
 SELECT *
-FROM workspace.bronze.loyalty_cardholders_raw
-WHERE birthday > CURRENT_DATE()
-   OR registered_date < birthday;
+FROM birthday_check
+WHERE parsed_birthday > CURRENT_DATE();
+
+-- Registration date before birth date
+
+WITH birthday_check AS (
+    SELECT
+        user_id,
+        registered_date,
+        CASE
+            WHEN CAST(SPLIT(birthday, '/')[2] AS INT) <= 24 THEN
+                TO_DATE(
+                    CONCAT(
+                        '20',
+                        LPAD(SPLIT(birthday, '/')[2], 2, '0'),
+                        '-',
+                        LPAD(SPLIT(birthday, '/')[0], 2, '0'),
+                        '-',
+                        LPAD(SPLIT(birthday, '/')[1], 2, '0')
+                    )
+                )
+            ELSE
+                TO_DATE(
+                    CONCAT(
+                        '19',
+                        LPAD(SPLIT(birthday, '/')[2], 2, '0'),
+                        '-',
+                        LPAD(SPLIT(birthday, '/')[0], 2, '0'),
+                        '-',
+                        LPAD(SPLIT(birthday, '/')[1], 2, '0')
+                    )
+                )
+        END AS parsed_birthday
+    FROM workspace.retail_pipeline.loyalty_cardholders_raw
+)
+
+SELECT *
+FROM birthday_check
+WHERE registered_date < parsed_birthday;
 
 -- ============================================================
 -- STEP 3: STANDARDIZATION
@@ -97,13 +173,47 @@ SELECT
     total_unit_price,
     INITCAP(TRIM(retailer)) AS retailer,
     TRIM(branch) AS branch
-FROM workspace.bronze.transaction_details_raw;
+FROM workspace.retail_pipeline.transaction_details_raw;
+
+CREATE OR REPLACE TEMP VIEW loyalty_standardized AS
+SELECT
+    user_id,
+
+    CASE
+        WHEN CAST(SPLIT(birthday, '/')[2] AS INT) <= 24 THEN
+            TO_DATE(
+                CONCAT(
+                    '20',
+                    LPAD(SPLIT(birthday, '/')[2], 2, '0'),
+                    '-',
+                    LPAD(SPLIT(birthday, '/')[0], 2, '0'),
+                    '-',
+                    LPAD(SPLIT(birthday, '/')[1], 2, '0')
+                )
+            )
+        ELSE
+            TO_DATE(
+                CONCAT(
+                    '19',
+                    LPAD(SPLIT(birthday, '/')[2], 2, '0'),
+                    '-',
+                    LPAD(SPLIT(birthday, '/')[0], 2, '0'),
+                    '-',
+                    LPAD(SPLIT(birthday, '/')[1], 2, '0')
+                )
+            )
+    END AS birthday,
+
+    registered_date
+
+FROM workspace.retail_pipeline.loyalty_cardholders_raw
+WHERE TRY_TO_DATE(birthday, 'M/d/yy') IS NOT NULL;
 
 -- ============================================================
--- STEP 4: CREATE SILVER TABLES
+-- STEP 4: CREATE CLEAN TABLES
 -- ============================================================
 
-CREATE OR REPLACE TABLE workspace.silver.transaction_details_clean AS
+CREATE OR REPLACE TABLE workspace.retail_pipeline.transaction_details_clean AS
 SELECT DISTINCT *
 FROM transaction_standardized
 WHERE customer_id IS NOT NULL
@@ -111,12 +221,9 @@ WHERE customer_id IS NOT NULL
   AND quantity > 0
   AND total_unit_price > 0;
 
-CREATE OR REPLACE TABLE workspace.silver.loyalty_cardholders_clean AS
-SELECT DISTINCT
-    user_id,
-    birthday,
-    registered_date
-FROM workspace.bronze.loyalty_cardholders_raw
+CREATE OR REPLACE TABLE workspace.retail_pipeline.loyalty_cardholders_clean AS
+SELECT DISTINCT *
+FROM loyalty_standardized
 WHERE user_id IS NOT NULL
   AND birthday IS NOT NULL
   AND birthday <= CURRENT_DATE()
@@ -127,43 +234,44 @@ WHERE user_id IS NOT NULL
 -- ============================================================
 
 SELECT
-    'Bronze Transactions' AS dataset,
+    'Raw Transactions' AS dataset,
     COUNT(*) AS records
-FROM workspace.bronze.transaction_details_raw
+FROM workspace.retail_pipeline.transaction_details_raw
 
 UNION ALL
 
 SELECT
-    'Silver Transactions',
+    'Clean Transactions',
     COUNT(*)
-FROM workspace.silver.transaction_details_clean
+FROM workspace.retail_pipeline.transaction_details_clean
 
 UNION ALL
 
 SELECT
-    'Bronze Loyalty',
+    'Raw Loyalty',
     COUNT(*)
-FROM workspace.bronze.loyalty_cardholders_raw
+FROM workspace.retail_pipeline.loyalty_cardholders_raw
 
 UNION ALL
 
 SELECT
-    'Silver Loyalty',
+    'Clean Loyalty',
     COUNT(*)
-FROM workspace.silver.loyalty_cardholders_clean;
-
--- Remaining duplicate loyalty members
+FROM workspace.retail_pipeline.loyalty_cardholders_clean;
 
 SELECT
     user_id,
     COUNT(*) AS duplicate_count
-FROM workspace.silver.loyalty_cardholders_clean
+FROM workspace.retail_pipeline.loyalty_cardholders_clean
 GROUP BY user_id
 HAVING COUNT(*) > 1;
 
--- Remaining invalid transaction values
-
 SELECT *
-FROM workspace.silver.transaction_details_clean
+FROM workspace.retail_pipeline.transaction_details_clean
 WHERE quantity <= 0
    OR total_unit_price <= 0;
+
+SELECT
+    MIN(birthday) AS earliest_birthday,
+    MAX(birthday) AS latest_birthday
+FROM workspace.retail_pipeline.loyalty_cardholders_clean;

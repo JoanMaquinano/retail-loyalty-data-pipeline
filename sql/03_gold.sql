@@ -4,16 +4,17 @@
 -- Business-ready customer purchasing dataset
 -- ============================================================
 
+USE CATALOG workspace;
+USE SCHEMA retail_pipeline;
+
 -- ============================================================
 -- STEP 1: CREATE CUSTOMER PURCHASE ANALYSIS TABLE
 -- ============================================================
 
-CREATE OR REPLACE TABLE workspace.gold.customer_purchase_analysis AS
+CREATE OR REPLACE TABLE workspace.retail_pipeline.customer_purchase_analysis AS
 
 SELECT
     t.customer_id,
-    
-    -- Customer demographics
     l.birthday,
 
     FLOOR(
@@ -29,7 +30,6 @@ SELECT
         ELSE 'Unknown'
     END AS age_group,
 
-    -- Transaction details
     t.transaction_id,
     t.receipt_number,
     t.transaction_date,
@@ -39,21 +39,16 @@ SELECT
         'yyyy-MM'
     ) AS transaction_month,
 
-    -- Product attributes
     t.product_sku,
     t.product_brand,
-
-    -- Purchase metrics
     t.quantity,
     t.total_unit_price,
-
-    -- Retail attributes
     t.retailer,
     t.branch
 
-FROM workspace.silver.transaction_details_clean t
+FROM workspace.retail_pipeline.transaction_details_clean t
 
-LEFT JOIN workspace.silver.loyalty_cardholders_clean l
+LEFT JOIN workspace.retail_pipeline.loyalty_cardholders_clean l
     ON t.customer_id = l.user_id;
 
 -- ============================================================
@@ -68,22 +63,22 @@ SELECT
     COUNT(DISTINCT transaction_id) AS unique_transactions,
     COUNT(DISTINCT product_brand) AS unique_brands,
     COUNT(DISTINCT retailer) AS unique_retailers
-FROM workspace.gold.customer_purchase_analysis;
+FROM workspace.retail_pipeline.customer_purchase_analysis;
 
 -- Age group distribution
 
 SELECT
     age_group,
     COUNT(*) AS records
-FROM workspace.gold.customer_purchase_analysis
+FROM workspace.retail_pipeline.customer_purchase_analysis
 GROUP BY age_group
 ORDER BY age_group;
 
--- Customers without loyalty match
+-- Transactions without loyalty match
 
 SELECT
     COUNT(*) AS unmatched_customers
-FROM workspace.gold.customer_purchase_analysis
+FROM workspace.retail_pipeline.customer_purchase_analysis
 WHERE birthday IS NULL;
 
 -- Null checks
@@ -93,4 +88,4 @@ SELECT
     SUM(CASE WHEN transaction_id IS NULL THEN 1 ELSE 0 END) AS null_transaction_id,
     SUM(CASE WHEN product_brand IS NULL THEN 1 ELSE 0 END) AS null_product_brand,
     SUM(CASE WHEN retailer IS NULL THEN 1 ELSE 0 END) AS null_retailer
-FROM workspace.gold.customer_purchase_analysis;
+FROM workspace.retail_pipeline.customer_purchase_analysis;

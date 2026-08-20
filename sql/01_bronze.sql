@@ -10,16 +10,16 @@
 
 USE CATALOG workspace;
 
-CREATE SCHEMA IF NOT EXISTS workspace.bronze;
-CREATE SCHEMA IF NOT EXISTS workspace.silver;
-CREATE SCHEMA IF NOT EXISTS workspace.gold;
+CREATE SCHEMA IF NOT EXISTS retail_pipeline;
+
+USE SCHEMA retail_pipeline;
 
 -- ============================================================
 -- RAW TRANSACTION TABLE
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS workspace.bronze.transaction_details_raw (
-    `# customer_id` BIGINT,
+CREATE TABLE IF NOT EXISTS workspace.retail_pipeline.transaction_details_raw (
+    customer_id BIGINT,
     transaction_id BIGINT,
     receipt_date STRING,
     transaction_date TIMESTAMP,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS workspace.bronze.transaction_details_raw (
 -- RAW LOYALTY TABLE
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS workspace.bronze.loyalty_cardholders_raw (
+CREATE TABLE IF NOT EXISTS workspace.retail_pipeline.loyalty_cardholders_raw (
     user_id BIGINT,
     birthday DATE,
     registered_date TIMESTAMP
@@ -49,11 +49,11 @@ CREATE TABLE IF NOT EXISTS workspace.bronze.loyalty_cardholders_raw (
 SELECT
     'Transaction Details' AS dataset,
     COUNT(*) AS records
-FROM workspace.bronze.transaction_details_raw
+FROM workspace.retail_pipeline.transaction_details_raw
 
 UNION ALL
 
 SELECT
     'Loyalty Cardholders' AS dataset,
     COUNT(*) AS records
-FROM workspace.bronze.loyalty_cardholders_raw;
+FROM workspace.retail_pipeline.loyalty_cardholders_raw;
