@@ -1,59 +1,56 @@
--- ============================================================
--- RETAIL TRANSACTIONS + LOYALTY CUSTOMER DATA PIPELINE
--- 01 - BRONZE LAYER
--- Raw data ingestion and storage
--- ============================================================
-
--- ============================================================
--- SETUP
--- ============================================================
+-- Bronze layer
+-- Keeps the original transaction and loyalty data before cleaning.
 
 USE CATALOG workspace;
+USE SCHEMA bronze;
 
-CREATE SCHEMA IF NOT EXISTS retail_pipeline;
+-- Landing area for source files
+CREATE VOLUME IF NOT EXISTS workspace.bronze.source_files;
 
-USE SCHEMA retail_pipeline;
-
--- ============================================================
--- RAW TRANSACTION TABLE
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS workspace.retail_pipeline.transaction_details_raw (
-    customer_id BIGINT,
-    transaction_id BIGINT,
-    receipt_date STRING,
-    transaction_date TIMESTAMP,
-    receipt_number STRING,
-    product_sku STRING,
-    product_brand STRING,
-    quantity BIGINT,
-    total_unit_price DOUBLE,
-    retailer STRING,
-    branch STRING
+-- Raw transaction data
+-- One row represents one product line from a transaction.
+-- Load transaction details from volume
+CREATE OR REPLACE TABLE workspace.bronze.transaction_details_raw AS
+SELECT 
+  `# customer_id` AS customer_id ,
+  transaction_id,
+  receipt_date,
+  transaction_date,
+  receipt_number,
+  product_sku,
+  product_brand,
+  quantity,
+  total_unit_price,
+  retailer,
+  branch
+FROM read_files(
+  '/Volumes/workspace/bronze/source_files/Transaction Details Original.csv',
+  format => 'csv',
+  header => true
 );
 
--- ============================================================
--- RAW LOYALTY TABLE
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS workspace.retail_pipeline.loyalty_cardholders_raw (
-    user_id BIGINT,
-    birthday DATE,
-    registered_date TIMESTAMP
+-- Load loyalty cardholders from volume
+CREATE OR REPLACE TABLE workspace.bronze.loyalty_cardholders_raw AS
+SELECT 
+  user_id,
+  birthday,
+  registered_date
+FROM read_files(
+  '/Volumes/workspace/bronze/source_files/Loyalty cardholders Original.csv',
+  format => 'csv',
+  header => true
 );
 
--- ============================================================
--- LOAD VALIDATION
--- ============================================================
-
+-- Check current row counts
 SELECT
-    'Transaction Details' AS dataset,
-    COUNT(*) AS records
-FROM workspace.retail_pipeline.transaction_details_raw
+    'Transaction Details' AS source,
+    COUNT(*) AS row_count
+FROM read_files(
+  '/Volumes/workspace/bronze/source_files/Transaction Details Original.csv')
 
 UNION ALL
 
 SELECT
-    'Loyalty Cardholders' AS dataset,
-    COUNT(*) AS records
-FROM workspace.retail_pipeline.loyalty_cardholders_raw;
+    'Loyalty Cardholders' AS source,
+    COUNT(*) AS row_count
+FROM read_files('/Volumes/workspace/bronze/source_files/Loyalty cardholders Original.csv');
